@@ -1,12 +1,13 @@
 {
-  "name": "2chat-monitor",
+  "name": "2chat-direct-monitor",
   "version": "1.0.0",
+  "description": "WhatsApp Monitor for 2Chat",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "express": "^4.18.2"
   }
 }
