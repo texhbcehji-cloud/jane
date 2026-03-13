@@ -1,38 +1,59 @@
-const express = require('express');
 const axios = require('axios');
-const app = express();
 
-app.use(express.json());
+// الإعدادات المباشرة (Hardcoded)
+const API_KEY = 'UAKd9d5512d-6f21-4d74-961d-c852a2d1d725'; 
+const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbyqZsqSsrDeJpxwDmu8rNFIT1rI6bEXLOeeR2tYebtRLYEMFPWjjAGhxliuSVP0XRNx/exec";
 
-const PORT = process.env.PORT || 3000;
-// سنأخذ الروابط من إعدادات Railway للأمان
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+// مصفوفة لحفظ المعرفات ومنع تكرار إرسال نفس الرسالة
+let seenMessages = new Set();
 
-app.post('/webhook', async (req, res) => {
-    const data = req.body;
-
-    // التأكد من أن الحدث هو رسالة صادرة وتحتوي على كلمة Go
-    // ملاحظة: 2Chat يرسل البيانات عادة في كائن يسمى 'data' أو مباشرة حسب نوع الـ Webhook
-    const messageText = data.text || "";
-    const isOutbound = data.direction === 'outbound';
-
-    if (isOutbound && messageText.includes('Go')) {
-        console.log(`تم العثور على كلمة Go في رسالة إلى: ${data.remote_jid}`);
+async function monitor2Chat() {
+    try {
+        console.log(`[${new Date().toLocaleTimeString()}] جاري فحص الرسائل الجديدة...`);
         
-        try {
-            await axios.post(GOOGLE_SCRIPT_URL, {
-                date: new Date().toLocaleString(),
-                phone: data.remote_jid,
-                message: messageText,
-                status: 'Sent via 2Chat'
-            });
-            console.log('تم الإرسال إلى Google Sheets بنجاح');
-        } catch (error) {
-            console.error('خطأ في الإرسال لجوجل:', error.message);
+        // جلب آخر 20 رسالة صادرة من API
+        const response = await axios.get('https://api.2chat.io/v1/messages?direction=outbound&limit=20', {
+            headers: { 'Authorization': API_KEY }
+        });
+
+        const messages = response.data.data || [];
+
+        for (let msg of messages) {
+            // الشروط: تحتوي على Go، لم يتم معالجتها من قبل، وليست فارغة
+            if (msg.text && msg.text.includes('Go') && !seenMessages.has(msg.id)) {
+                
+                console.log(`✅ تم العثور على تطابق! إرسال الرسالة رقم: ${msg.id}`);
+
+                await axios.post(GOOGLE_URL, {
+                    phone: msg.remote_jid,
+                    text: msg.text,
+                    timestamp: msg.created_at
+                });
+
+                // تسجيل الرسالة كـ "تمت معالجتها"
+                seenMessages.add(msg.id);
+            }
         }
+
+        // تنظيف الذاكرة دورياً (حفظ آخر 500 معرف فقط)
+        if (seenMessages.size > 500) {
+            const iterator = seenMessages.values();
+            seenMessages.delete(iterator.next().value);
+        }
+
+    } catch (error) {
+        console.error("❌ خطأ أثناء الاتصال بـ 2Chat:", error.message);
     }
+}
 
-    res.status(200).send('Event Received');
-});
+// الفحص كل 60 ثانية
+setInterval(monitor2Chat, 60000);
 
-app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+// تشغيل الفحص الأول عند تشغيل السيرفر
+monitor2Chat();
+
+// إبقاء السيرفر حياً لـ Railway
+const express = require('express');
+const app = express();
+app.get('/', (req, res) => res.send('2Chat Monitor is running...'));
+app.listen(process.env.PORT || 3000);
