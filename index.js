@@ -9,64 +9,65 @@ let seenMessages = new Set();
 
 async function monitor2Chat() {
     try {
-        console.log(`[${new Date().toLocaleTimeString()}] جاري فحص الرسائل...`);
+        console.log(`[${new Date().toLocaleTimeString()}] جاري محاولة الفحص...`);
         
-        // تعديل الرابط ليكون المسار كاملاً وصحيحاً
-        const response = await axios.get('https://api.2chat.io/v1/messages?direction=outbound&limit=20', {
+        // استخدام Axios مع إعدادات إضافية لتجاوز مشاكل الشبكة
+        const response = await axios({
+            method: 'get',
+            url: 'https://api.2chat.io/v1/messages',
+            params: {
+                direction: 'outbound',
+                limit: 15
+            },
             headers: { 
                 'Authorization': API_KEY,
-                'Content-Type': 'application/json'
+                'Accept': 'application/json'
             },
-            timeout: 10000 // مهلة 10 ثوانٍ للرد
+            timeout: 15000 // زيادة مهلة الانتظار لـ 15 ثانية
         });
 
-        // التأكد من وجود بيانات
         const messages = response.data && response.data.data ? response.data.data : [];
 
         if (messages.length === 0) {
-            console.log("لا توجد رسائل صادرة حالياً.");
+            console.log("لا توجد رسائل صادرة.");
         }
 
         for (let msg of messages) {
             if (msg.text && msg.text.includes('Go') && !seenMessages.has(msg.id)) {
                 
-                console.log(`✅ تم العثور على "Go" في الرسالة: ${msg.id}`);
+                console.log(`✅ تم العثور على Go! يرسل الآن إلى جوجل...`);
 
                 await axios.post(GOOGLE_URL, {
                     phone: msg.remote_jid,
                     text: msg.text,
                     timestamp: msg.created_at
-                }).catch(err => console.error("خطأ أثناء الإرسال لجوجل:", err.message));
+                }).catch(e => console.error("خطأ جوجل شيت:", e.message));
 
                 seenMessages.add(msg.id);
             }
         }
 
-        // تنظيف الذاكرة
-        if (seenMessages.size > 500) {
-            const iterator = seenMessages.values();
-            seenMessages.delete(iterator.next().value);
-        }
-
     } catch (error) {
-        // معالجة خطأ الاتصال بشكل أفضل
-        if (error.code === 'ENOTFOUND') {
-            console.error("❌ خطأ: تعذر الوصول إلى سيرفر 2Chat (مشكلة DNS أو إنترنت).");
+        if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+            console.error("⚠️ مشكلة في DNS السيرفر. سأحاول مجدداً في الدورة القادمة.");
+        } else if (error.response) {
+            console.error(`❌ خطأ من 2Chat (Status: ${error.response.status}):`, error.response.data);
         } else {
-            console.error("❌ خطأ أثناء الفحص:", error.message);
+            console.error("❌ خطأ غير متوقع:", error.message);
         }
     }
 }
 
-// إنشاء سيرفر ويب بسيط لإبقاء التطبيق حياً في Railway
 const app = express();
-app.get('/', (req, res) => res.send('OK - Monitoring Active'));
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
+
+app.get('/', (req, res) => res.send('System Active'));
+
 app.listen(PORT, () => {
     console.log(`Server is live on port ${PORT}`);
-    // بدء الفحص بعد 5 ثوانٍ من تشغيل السيرفر للتأكد من استقرار الشبكة
-    setTimeout(monitor2Chat, 5000);
+    // تأخير البداية قليلاً للسماح للشبكة بالاستقرار
+    setTimeout(monitor2Chat, 10000);
 });
 
-// الفحص الدوري كل 60 ثانية
+// الفحص كل 60 ثانية
 setInterval(monitor2Chat, 60000);
